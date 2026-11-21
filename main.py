@@ -1,225 +1,230 @@
-#!/usr/bin/env python3
-"""Draw a broadsheet front page summing up Saturday 21 November 2026's
-world news and write it to /output/entry.png (or $MAKEFUN_OUTPUT_DIR).
+"""The World -- Saturday 21 November 2026.
 
-Pure Pillow, standard library only, no network, no randomness: two runs
-write identical bytes.
+A broadsheet front page drawn with Pillow: standard library plus Pillow
+only, no network, no randomness, no system fonts. The program writes
+/output/entry.png (or $MAKEFUN_OUTPUT_DIR/entry.png), a 1024x1024 PNG
+summing up the world's news of Saturday 21 November 2026.
+
+Fonts: Pillow's bundled default font only (ImageFont.load_default), so the
+program runs the same in any container that has Pillow. No font files are
+read from the system and none are shipped in the repository.
 """
+
 import os
+
 from PIL import Image, ImageDraw, ImageFont
 
 W, H = 1024, 1024
-PAPER = (248, 244, 233)   # off-white newsprint
-INK = (26, 26, 26)
-RED = (164, 30, 34)       # kicker / rule red
-NAVY = (31, 58, 95)       # sea blue
-SEA = (46, 84, 130)
-STEEL = (58, 66, 76)
-TICKER_BG = (32, 36, 42)
-TICKER_FG = (240, 236, 224)
-GREY = (90, 86, 76)
+PAPER = (248, 244, 232)
+PANEL = (253, 251, 243)
+INK = (28, 28, 28)
+SOFT = (90, 84, 70)
+RED = (185, 28, 28)
+RULE = (190, 182, 160)
+NAVY = (28, 30, 46)
+SKY = (205, 226, 240)
+SEA = (46, 95, 138)
+SEA_DARK = (32, 70, 104)
+HULL = (31, 41, 55)
+DECK = (226, 232, 240)
+BURST = (245, 158, 11)
+BURST_RED = (220, 68, 48)
 
-FONTS = "/usr/share/fonts/truetype/dejavu"
-
-
-def font(name, size):
-    return ImageFont.truetype(os.path.join(FONTS, name), size)
-
-
-F_MAST = font("DejaVuSerif-Bold.ttf", 66)
-F_DATE = font("DejaVuSans-Bold.ttf", 24)
-F_TAG = font("DejaVuSans.ttf", 16)
-F_KICK = font("DejaVuSans-Bold.ttf", 16)
-F_HEAD = font("DejaVuSans-Bold.ttf", 34)
-F_HEAD2 = font("DejaVuSans-Bold.ttf", 26)
-F_HEAD3 = font("DejaVuSans-Bold.ttf", 24)
-F_BODY = font("DejaVuSans.ttf", 18)
-F_BODY2 = font("DejaVuSans.ttf", 17)
-F_TICK = font("DejaVuSans-Bold.ttf", 15)
+_fonts = {}
 
 
-def wrap(text, fnt, max_w):
-    """Wrap text to lines no wider than max_w pixels."""
-    lines, cur = [], ""
+def font(size):
+    """Pillow's bundled font at the given size, with a plain fallback."""
+    if size not in _fonts:
+        try:
+            _fonts[size] = ImageFont.load_default(size=size)
+        except TypeError:
+            _fonts[size] = ImageFont.load_default()
+    return _fonts[size]
+
+
+def wrap(draw, text, fnt, max_w):
+    """Greedy word wrap of text to lines no wider than max_w."""
+    lines = []
+    cur = ""
     for word in text.split():
         trial = (cur + " " + word).strip()
-        if fnt.getlength(trial) <= max_w:
+        if not cur or draw.textlength(trial, font=fnt) <= max_w:
             cur = trial
         else:
-            if cur:
-                lines.append(cur)
+            lines.append(cur)
             cur = word
     if cur:
         lines.append(cur)
     return lines
 
 
-def draw_wrapped(d, x, y, lines, fnt, fill, leading):
-    for line in lines:
-        d.text((x, y), line, font=fnt, fill=fill)
-        y += leading
-    return y
+def draw_tracked(draw, cx, y, text, fnt, fill, tracking):
+    """Draw text centred on cx with extra tracking between letters."""
+    widths = [draw.textlength(ch, font=fnt) for ch in text]
+    total = sum(widths) + tracking * max(0, len(text) - 1)
+    x = cx - total / 2.0
+    for ch, cw in zip(text, widths):
+        draw.text((x, y), ch, font=fnt, fill=fill)
+        x += cw + tracking
 
 
-def kicker_head_body(d, x, y, w, kick, head, body, head_font=F_HEAD2,
-                     body_font=F_BODY2, head_leading=32, body_leading=24):
-    d.text((x, y), kick, font=F_KICK, fill=RED)
-    y += 26
-    y = draw_wrapped(d, x, y, wrap(head, head_font, w), head_font, INK,
-                     head_leading)
-    y += 6
-    y = draw_wrapped(d, x, y, wrap(body, body_font, w), body_font, INK,
-                     body_leading)
-    return y
+def draw_centered(draw, cx, y, text, fnt, fill):
+    draw.text((cx, y), text, font=fnt, fill=fill, anchor="ma")
 
 
-def panel_rule(d, x, y, w):
-    d.line([(x, y), (x + w, y)], fill=INK, width=2)
+def rule(draw, x0, x1, y, fill=RULE, width=1):
+    draw.line([(x0, y), (x1, y)], fill=fill, width=width)
 
 
-def draw_sea_scene(d, x, y, w, h):
-    """Simple geometric Strait of Hormuz scene: sea, two tankers, a drone
-    and a dashed missile arc. No flags, no text inside the scene."""
-    d.rectangle([x, y, x + w, y + h], fill=SEA)
-    # horizon shimmer
-    for i in range(0, w, 46):
-        d.line([(x + i, y + 14), (x + i + 22, y + 14)], fill=(120, 160, 200),
-               width=2)
-    # tanker 1 (left)
-    hx, hy = x + 24, y + h - 58
-    d.rectangle([hx, hy, hx + 190, hy + 34], fill=(30, 34, 40))
-    d.polygon([(hx + 190, hy), (hx + 214, hy + 14), (hx + 190, hy + 34)],
-              fill=(30, 34, 40))
-    for i, col in enumerate([(164, 30, 34), (200, 160, 60), (60, 120, 90)]):
-        d.rectangle([hx + 14 + i * 52, hy - 22, hx + 52 + i * 52, hy - 2],
-                    fill=col)
-    d.rectangle([hx + 168, hy - 30, hx + 182, hy - 2], fill=(220, 220, 210))
-    # tanker 2 (right, smaller)
-    hx2, hy2 = x + w - 210, y + h - 50
-    d.rectangle([hx2, hy2, hx2 + 150, hy2 + 28], fill=(24, 28, 34))
-    d.polygon([(hx2 + 150, hy2), (hx2 + 170, hy2 + 12), (hx2 + 150, hy2 + 28)],
-              fill=(24, 28, 34))
-    for i, col in enumerate([(200, 160, 60), (164, 30, 34)]):
-        d.rectangle([hx2 + 12 + i * 46, hy2 - 18, hx2 + 46 + i * 46, hy2 - 2],
-                    fill=col)
-    # drone above the sea (quad-rotor)
-    dx, dy = x + w // 2 - 12, y + 14
-    d.rectangle([dx, dy + 6, dx + 24, dy + 14], fill=(20, 22, 26))
-    d.line([(dx - 10, dy + 4), (dx + 34, dy + 4)], fill=(20, 22, 26), width=3)
-    d.line([(dx - 10, dy + 16), (dx + 34, dy + 16)], fill=(20, 22, 26),
-           width=3)
-    d.ellipse([dx - 14, dy, dx - 4, dy + 8], outline=(20, 22, 26), width=2)
-    d.ellipse([dx + 28, dy, dx + 38, dy + 8], outline=(20, 22, 26), width=2)
-    d.ellipse([dx - 14, dy + 12, dx - 4, dy + 20], outline=(20, 22, 26),
-              width=2)
-    d.ellipse([dx + 28, dy + 12, dx + 38, dy + 20], outline=(20, 22, 26),
-              width=2)
-    # mine-strike starburst above the right tanker
-    sx, sy = x + w - 120, y + 42
-    for ang in range(0, 360, 45):
+def draw_masthead(draw):
+    draw_tracked(draw, W / 2, 20, "THE WORLD", font(76), INK, 16)
+    rule(draw, 36, 988, 102, INK, 2)
+    rule(draw, 36, 988, 107, INK, 1)
+    date = "SATURDAY 21 NOVEMBER 2026"
+    df = font(20)
+    dw = draw.textlength(date, font=df)
+    mid = 116 + 10
+    rule(draw, 36, 512 - dw / 2 - 18, mid, RULE, 1)
+    rule(draw, 512 + dw / 2 + 18, 988, mid, RULE, 1)
+    draw_centered(draw, 512, 116, date, df, RED)
+    rule(draw, 36, 988, 150, INK, 1)
+
+
+def draw_sea_scene(draw, x0, y0, x1, y1):
+    """A simple geometric sea scene: two tankers, a drone, a mine strike."""
+    draw.rectangle([x0, y0, x1, y1], fill=SKY, outline=RULE, width=1)
+    horizon = y0 + 88
+    draw.rectangle([x0, horizon, x1, y1], fill=SEA)
+    draw.line([(x0, horizon), (x1, horizon)], fill=SEA_DARK, width=2)
+    # waves
+    for wy in (horizon + 34, horizon + 62, horizon + 92):
+        for wx in range(x0 + 12, x1 - 30, 46):
+            draw.arc([wx, wy, wx + 30, wy + 10], 180, 360, fill=(150, 190, 220), width=2)
+    # far tanker (right, smaller)
+    fx0, fy0 = x1 - 128, horizon + 6
+    draw.rectangle([fx0, fy0, fx0 + 104, fy0 + 20], fill=HULL)
+    draw.rectangle([fx0 + 58, fy0 - 14, fx0 + 88, fy0], fill=DECK)
+    draw.rectangle([fx0 + 70, fy0 - 24, fx0 + 76, fy0 - 14], fill=HULL)
+    # near tanker (left, larger)
+    nx0, ny0 = x0 + 22, horizon + 26
+    draw.rectangle([nx0, ny0, nx0 + 168, ny0 + 30], fill=HULL)
+    draw.rectangle([nx0 + 12, ny0 - 20, nx0 + 52, ny0], fill=DECK)
+    draw.rectangle([nx0 + 96, ny0 - 14, nx0 + 148, ny0], fill=DECK)
+    draw.rectangle([nx0 + 120, ny0 - 30, nx0 + 128, ny0 - 14], fill=HULL)
+    # mine-strike starburst at the near tanker's bow
+    bx, by = nx0 + 168, ny0 + 8
+    for ang in range(0, 360, 30):
         import math
-        r1, r2 = 6, 20
-        a = math.radians(ang)
-        d.line([(sx + r1 * math.cos(a), sy + r1 * math.sin(a)),
-                (sx + r2 * math.cos(a), sy + r2 * math.sin(a))],
-               fill=(255, 190, 60), width=3)
-    d.ellipse([sx - 5, sy - 5, sx + 5, sy + 5], fill=(255, 120, 40))
-    d.text((x + w - 118, y + 6), "HORMUZ", font=F_KICK, fill=(255, 255, 255))
+        r = 26 if ang % 60 == 0 else 15
+        ex = bx + r * math.cos(math.radians(ang))
+        ey = by + r * math.sin(math.radians(ang))
+        draw.line([(bx, by), (ex, ey)], fill=BURST, width=3)
+    draw.ellipse([bx - 12, by - 12, bx + 12, by + 12], fill=BURST_RED)
+    draw.ellipse([bx - 6, by - 6, bx + 6, by + 6], fill=(255, 220, 120))
+    # quad-rotor drone in the sky
+    dx, dy = x0 + 218, y0 + 34
+    draw.line([(dx - 26, dy - 10), (dx + 26, dy + 10)], fill=INK, width=3)
+    draw.line([(dx - 26, dy + 10), (dx + 26, dy - 10)], fill=INK, width=3)
+    for cx, cy in ((dx - 26, dy - 10), (dx + 26, dy + 10),
+                   (dx - 26, dy + 10), (dx + 26, dy - 10)):
+        draw.ellipse([cx - 8, cy - 3, cx + 8, cy + 3], outline=INK, width=2)
+    draw.rectangle([dx - 9, dy - 6, dx + 9, dy + 6], fill=INK)
+
+
+def draw_lead(draw):
+    x0, y0, x1, y1 = 36, 160, 988, 424
+    draw.rectangle([x0, y0, x1, y1], fill=PANEL, outline=RULE, width=1)
+    tx = 60
+    draw.text((tx, 182), "MIDDLE EAST", font=font(16), fill=RED)
+    draw.text((tx, 206), "War in the Strait of Hormuz", font=font(34), fill=INK)
+    body = ("Iran downs a US drone over the strait; two tankers are "
+            "attacked off Oman and one strikes a naval mine. Three "
+            "missiles are downed over Riyadh; 41 are killed in Yemen "
+            "airstrikes.")
+    y = 258
+    for line in wrap(draw, body, font(18), 540):
+        draw.text((tx, y), line, font=font(18), fill=INK)
+        y += 27
+    draw_sea_scene(draw, 636, 182, 964, 402)
+
+
+PANELS = [
+    ("RUSSIA-UKRAINE", "Missiles land in Poland",
+     "400 drones, 110 missiles hit Ukraine overnight; two land in "
+     "Poland. Tusk calls it a provocation."),
+    ("UNITED NATIONS", "'Killer robot' rules off to 2028",
+     "Geneva talks end with a two-year extension and no binding deal "
+     "on autonomous weapons."),
+    ("CLIMATE", "COP31 talks run past deadline",
+     "Antalya negotiations go into overtime with no fossil-fuel deal "
+     "in the draft text."),
+    ("EUROPEAN UNION", "Brussels proposes Big Tech tax",
+     "A levy on the world's biggest digital firms is put forward in "
+     "Brussels."),
+    ("CRICKET", "India 486/4, lead 118",
+     "Day three of the first Test against New Zealand."),
+    ("BANGLADESH", "Armed Forces Day marked",
+     "PM Tarique Rahman honours the heroes of 1971."),
+]
+
+TICKER = ("TANKER HITS MINE IN HORMUZ  |  3 MISSILES DOWNED OVER "
+          "RIYADH  |  41 KILLED IN YEMEN  |  TRAIN CRASH KILLS 4 "
+          "IN COX'S BAZAR  |  ROBOT RULES OFF TO 2028")
+
+
+def draw_panel(draw, x0, y0, x1, y1, kicker, headline, body):
+    draw.rectangle([x0, y0, x1, y1], fill=PANEL, outline=RULE, width=1)
+    tx = x0 + 18
+    draw.text((tx, y0 + 14), kicker, font=font(16), fill=RED)
+    draw.text((tx, y0 + 36), headline, font=font(26), fill=INK)
+    y = y0 + 68
+    for line in wrap(draw, body, font(17), x1 - x0 - 36):
+        draw.text((tx, y), line, font=font(17), fill=INK)
+        y += 23
+
+
+def draw_grid(draw):
+    top = 440
+    row_h, gap = 134, 12
+    col_w = 468
+    for i, (kicker, headline, body) in enumerate(PANELS):
+        col = i % 2
+        row = i // 2
+        x0 = 36 + col * (col_w + 16)
+        y0 = top + row * (row_h + gap)
+        draw_panel(draw, x0, y0, x0 + col_w, y0 + row_h,
+                   kicker, headline, body)
+
+
+def draw_ticker(draw):
+    x0, y0, x1, y1 = 36, 882, 988, 962
+    draw.rectangle([x0, y0, x1, y1], fill=NAVY)
+    fnt = font(15)
+    lines = wrap(draw, TICKER, fnt, x1 - x0 - 32)
+    total = len(lines) * 24
+    y = y0 + (y1 - y0 - total) / 2 + 4
+    for line in lines:
+        draw_centered(draw, 512, y, line, fnt, (245, 244, 232))
+        y += 24
+
+
+def draw_footer(draw):
+    draw_centered(draw, 512, 976,
+                  "All stories reported on Saturday 21 November 2026",
+                  font(13), SOFT)
 
 
 def main():
-    img = Image.new("RGB", (W, H), PAPER)
-    d = ImageDraw.Draw(img)
-    # outer frame
-    d.rectangle([14, 14, W - 15, H - 15], outline=INK, width=3)
-
-    # ---- masthead ----
-    title = "THE WORLD"
-    tw = d.textlength(title, font=F_MAST)
-    d.text(((W - tw) / 2, 30), title, font=F_MAST, fill=INK)
-    d.line([(28, 118), (W - 28, 118)], fill=INK, width=2)
-    d.line([(28, 122), (W - 28, 122)], fill=INK, width=1)
-    date = "Saturday 21 November 2026"
-    dw = d.textlength(date, font=F_DATE)
-    d.text(((W - dw) / 2, 132), date, font=F_DATE, fill=RED)
-    tag = "The world's news, in one picture"
-    gw = d.textlength(tag, font=F_TAG)
-    d.text(((W - gw) / 2, 164), tag, font=F_TAG, fill=GREY)
-
-    # ---- lead story (left) ----
-    lx, ly, lw = 28, 196, 632
-    d.text((lx, ly), "STRAIT OF HORMUZ", font=F_KICK, fill=RED)
-    y = ly + 26
-    y = draw_wrapped(d, lx, y, wrap("War in the Strait of Hormuz", F_HEAD, lw),
-                     F_HEAD, INK, 40)
-    y += 4
-    y = draw_wrapped(
-        d, lx, y,
-        wrap("Iran downs a US drone over Hormuz. Two tankers are attacked "
-             "off Oman and one strikes a naval mine. Three missiles are "
-             "downed over Riyadh and 41 are killed in Yemen airstrikes.",
-             F_BODY, lw),
-        F_BODY, INK, 25)
-    draw_sea_scene(d, lx, y + 10, lw, 128)
-    panel_rule(d, lx, 516, lw)
-
-    # ---- right column, two stories ----
-    rx, rw = 688, 308
-    y = 196
-    y = kicker_head_body(
-        d, rx, y, rw, "RUSSIA - UKRAINE", "Missiles land in Poland",
-        "400 drones, 110 missiles hit Ukraine overnight. Two land in "
-        "Poland; Tusk calls it a deliberate provocation.",
-        head_font=F_HEAD3, head_leading=29, body_leading=22)
-    d.line([(rx, y + 10), (rx + rw, y + 10)], fill=GREY, width=1)
-    y += 22
-    kicker_head_body(
-        d, rx, y, rw, "UNITED NATIONS", "'Killer robot' rules off to 2028",
-        "Geneva talks end with a two-year extension, no binding deal.",
-        head_font=F_HEAD3, head_leading=29, body_leading=22)
-
-    # ---- second row: two panels ----
-    y0 = 532
-    c1, c2, cw = 28, 520, 476
-    panel_rule(d, c1, y0, cw)
-    panel_rule(d, c2, y0, cw)
-    kicker_head_body(
-        d, c1, y0 + 14, cw, "CLIMATE - COP31", "Talks run past deadline",
-        "Antalya negotiations go into overtime. No fossil-fuel deal in "
-        "the draft.")
-    kicker_head_body(
-        d, c2, y0 + 14, cw, "EUROPEAN UNION", "Brussels proposes Big Tech tax",
-        "A levy on the world's biggest digital firms is put forward.")
-
-    # ---- third row: two panels ----
-    y0 = 700
-    panel_rule(d, c1, y0, cw)
-    panel_rule(d, c2, y0, cw)
-    kicker_head_body(
-        d, c1, y0 + 14, cw, "SPORT - CRICKET", "India 486/4, lead 118",
-        "Day 3 of the 1st Test against New Zealand.")
-    kicker_head_body(
-        d, c2, y0 + 14, cw, "BANGLADESH", "Armed Forces Day marked",
-        "PM Tarique Rahman honours the heroes of 1971.")
-
-    # ---- ticker (two lines) ----
-    ty = 884
-    d.rectangle([28, ty, W - 28, ty + 82], fill=TICKER_BG)
-    ticker_lines = [
-        "HORMUZ: tanker hits mine   •   RIYADH: 3 missiles downed   •   "
-        "YEMEN: 41 killed in strikes",
-        "COX'S BAZAR: train crash kills 4   •   GENEVA: robot rules off "
-        "to 2028",
-    ]
-    ty_line = ty + 16
-    for line in ticker_lines:
-        lw = d.textlength(line, font=F_TICK)
-        d.text((28 + (W - 56 - lw) / 2, ty_line), line, font=F_TICK,
-               fill=TICKER_FG)
-        ty_line += 26
-
     outdir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
     os.makedirs(outdir, exist_ok=True)
+    img = Image.new("RGB", (W, H), PAPER)
+    draw = ImageDraw.Draw(img)
+    draw_masthead(draw)
+    draw_lead(draw)
+    draw_grid(draw)
+    draw_ticker(draw)
+    draw_footer(draw)
     img.save(os.path.join(outdir, "entry.png"))
 
 
